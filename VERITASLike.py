@@ -1,10 +1,12 @@
-__author__ = 'giacomov'
+__author__ = 'giacomov and udara'
 #Udara created this version just after the git comit
 
 import collections
 
 import ROOT
 import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib import gridspec
 
 import scipy.integrate
 import astromodels
@@ -389,6 +391,24 @@ class VERITASRun(object):
 
         return log_like_tot, locals()
 
+    def get_residuals(self, like_model):
+	#This fucntion return the observed number of counts and model predicted counts for a given run
+	diff_flux, integral = self._get_diff_flux_and_integral(like_model)
+	
+	this_spectrum = diff_flux(self._mc_energies_c)
+
+        sim_spectrum = self._simulated_spectrum(self._mc_energies_c)
+
+        weight = this_spectrum / sim_spectrum  # type: np.ndarray
+
+        n_pred = np.zeros(self._n_chan)
+
+        for i in range(n_pred.shape[0]):
+            n_pred[i] = np.sum(self._hMigration[i, :] * weight) * self._exposure
+
+	excess = np.subtract(self._counts, self._bkg_renorm*self._bkg_counts)
+	normalized_bkg_counts = self._bkg_renorm*self._bkg_counts
+        return excess, n_pred, normalized_bkg_counts	
 
 
 class VERITASLike(PluginPrototype):
@@ -491,5 +511,88 @@ class VERITASLike(PluginPrototype):
 
         return self.get_log_like()
 
+    def display_residuals(self,pulls):
+	obs_excess = np.zeros(len(self._runs_like.values()[0].get_residuals(self._likelihood_model)[0]))
+	model_pred = np.zeros(len(self._runs_like.values()[0].get_residuals(self._likelihood_model)[1]))
+	err_square = np.zeros(len(self._runs_like.values()[0].get_residuals(self._likelihood_model)[2]))
+	
+	for run in self._runs_like.values():#ading a temp is a temprory thing
+	     obs_excess_tmp = np.add(run.get_residuals(self._likelihood_model)[0],obs_excess)
+	     model_pred_tmp = np.add(run.get_residuals(self._likelihood_model)[1],model_pred)
+	     err_square_tmp = np.add(run.get_residuals(self._likelihood_model)[2],err_square)
 
+	print 'first_non_zero_excess_i', np.where(obs_excess_tmp>0)[0][0]
+
+	first_non_zero_excess_i = int(np.where(obs_excess_tmp>0)[0][0])
+	last_non_zero_excess_i = int(np.where(obs_excess_tmp>0)[0][-1])
+	
+
+	#Reading form temp is a temporory thing
+	obs_excess = obs_excess_tmp[first_non_zero_excess_i:last_non_zero_excess_i+1]
+	model_pred = model_pred_tmp[first_non_zero_excess_i:last_non_zero_excess_i+1]
+	err_square = err_square_tmp[first_non_zero_excess_i:last_non_zero_excess_i+1]
+	 
+	signal = np.add(obs_excess,err_square)#err_square is the background counts
+	
+
+
+	if pulls:
+		residual =  np.true_divide(np.subtract(obs_excess,model_pred),np.sqrt(err_square))
+		error = np.true_divide(np.sqrt(obs_excess),err_square)
+	else:
+		residual =  np.true_divide(np.subtract(obs_excess,model_pred),model_pred)
+		error = np.true_divide(np.sqrt(obs_excess),model_pred)
+
+	fig = plt.figure()
+        gs = gridspec.GridSpec(2, 1, height_ratios=[2, 1])
+        gs.update(hspace=0)
+
+	sub = plt.subplot(gs[0])
+		
+	n_bins    = len(residual)
+        bin_index = np.arange(n_bins)
+
+        sub.errorbar(bin_index, signal, yerr=error, capsize=0,
+                         color='black', label='Observation', fmt='.')
+
+        sub.plot(bin_index, model_pred + err_square, label='Model + bkg')
+
+        plt.legend(bbox_to_anchor=(1.0, 1.0), loc="upper right",
+                       numpoints=1)
+
+        # Residuals
+
+        sub1 = plt.subplot(gs[1])
+
+        # Using model variance to account for low statistic
+
+        sub1.axhline(0, linestyle='--')
+
+        sub1.errorbar(
+            bin_index, residual,
+            yerr=error,#I think this line is wrong the error needs to be figured out
+            capsize=0, fmt='.'
+        )
+
+        x_limits = [-0.5, n_bins - 0.5]
+        sub.set_xlim(x_limits)
+
+        sub.set_yscale("log", nonposy='clip')
+
+        sub.set_ylabel("Counts per bin")
+
+        # sub1.set_xscale("log")
+
+        sub1.set_xlabel("Analysis bin")
+
+        sub1.set_ylabel(r"$\frac{{excess - "
+                            "mod.}}{{{}.}}$".format("err" if pulls else "mod"))
+
+        sub1.set_xlim(x_limits)
+
+        sub.set_xticks([])
+        sub1.set_xticks(bin_index)
+        #sub1.set_xticklabels(self._bin_list)#Figure this out
+
+        return fig
 
