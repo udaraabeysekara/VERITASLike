@@ -1,7 +1,7 @@
 
 from threeML import *
-#from threeML.plugins.experimental.VERITASLike import VERITASLike
-from VERITASLike import VERITASLike
+from threeML.plugins.experimental.VERITASLike import VERITASLike
+#from VERITASLike import VERITASLike
 
 import matplotlib.pyplot as plt
 
